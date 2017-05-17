@@ -29,19 +29,18 @@ boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualizati
 pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
 int rows, cols;
 
-#define STRIDE 8
+#define STRIDE 12
 
 void GreedyProjectionTriangulation()
 {
     // Normal estimation*
-std::cout<<point_cloud_ptr->points.size()<<std::endl;
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> n;
     pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
     tree->setInputCloud(point_cloud_ptr);
     n.setInputCloud(point_cloud_ptr);
     n.setSearchMethod(tree);
-    n.setKSearch(20);
+    n.setKSearch(5);
     n.compute(*normals);
     //* normals should not contain the point normals + surface curvatures
     // Concatenate the XYZ and normal fields*
@@ -56,7 +55,7 @@ std::cout<<point_cloud_ptr->points.size()<<std::endl;
     pcl::PolygonMesh triangles;
 
     // Set the maximum distance between connected points (maximum edge length)
-    gp3.setSearchRadius(0.025);
+    gp3.setSearchRadius(2);
 
     // Set typical values for the parameters
     gp3.setMu(2.5);
@@ -72,6 +71,7 @@ std::cout<<point_cloud_ptr->points.size()<<std::endl;
     gp3.reconstruct(triangles);
     viewer->removePolygonMesh("my");
     viewer->addPolygonMesh(triangles, "my"); //设置所要显示的网格对象
+    viewer->setRepresentationToWireframeForAllActors();
     viewer->spinOnce();
 
 }
@@ -109,6 +109,10 @@ void reconstruction_pointcloud(Mat &disp, Mat &img1c)
      tmp->is_dense = false;
      point_cloud_ptr->swap( *tmp );
 
+    // viewer->removeAllPointClouds();
+    // viewer->addPointCloud<pcl::PointXYZ>(point_cloud_ptr);
+    // viewer->spinOnce();
+
 }
 
 Mat compute_disparity_ELAS(Mat &left, Mat &right)
@@ -143,6 +147,7 @@ int main(int argc, char **argv)
 {
 
     viewer->setBackgroundColor(0, 0, 0);
+    viewer->setRepresentationToWireframeForAllActors(); //网格模型以点形式显示  
     viewer->addCoordinateSystem(1.0);
     viewer->initCameraParameters();
 
@@ -157,12 +162,12 @@ int main(int argc, char **argv)
     while (1)
     {
         //////////Read Images/////////
-        if (imageNum == 1237)
+        if (imageNum == 900)
             adder = -1;
         else if (imageNum == 1)
             adder = 1;
-        sprintf(filenameL, "/home/long/data/Dataset6/right_rect/%04d.png", imageNum);
-        sprintf(filenameR, "/home/long/data/Dataset6/left_rect/%04d.png", imageNum);
+        sprintf(filenameL, "/home/long/data/digest_stereo/%04d_L.png", imageNum);
+        sprintf(filenameR, "/home/long/data/digest_stereo/%04d_R.png", imageNum);
         //std::cout << filenameL << std::endl;
         int64 t_start = getTickCount();
         imageL = cv::imread(filenameL, 0);

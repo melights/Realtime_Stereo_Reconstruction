@@ -1,0 +1,18 @@
+{
+    "files.associations": {
+        "cctype": "cpp",
+        "cmath": "cpp",
+        "cstdarg": "cpp",
+        "cstddef": "cpp",
+        "cstdio": "cpp",
+        "cstdlib": "cpp",
+        "cstring": "cpp",
+        "ctime": "cpp",
+        "cwchar": "cpp",
+        "cwctype": "cpp",
+        "cstdint": "cpp",
+        "initializer_list": "cpp",
+        "slist": "cpp",
+        "mutex": "cpp"
+    }
+}

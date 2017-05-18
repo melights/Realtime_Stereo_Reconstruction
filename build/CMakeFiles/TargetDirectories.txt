@@ -1,6 +1,0 @@
-/home/long/Stereo/recon_test/build/CMakeFiles/edit_cache.dir
-/home/long/Stereo/recon_test/build/CMakeFiles/rebuild_cache.dir
-/home/long/Stereo/recon_test/build/CMakeFiles/recon_test.dir
-/home/long/Stereo/recon_test/build/CMakeFiles/realtime_stereo.dir
-/home/long/Stereo/recon_test/build/CMakeFiles/realtime_recon.dir
-/home/long/Stereo/recon_test/build/CMakeFiles/realtime_surface.dir

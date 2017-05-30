@@ -38,6 +38,15 @@ target_link_libraries(realtime_recon
 	${PROJECT_SOURCE_DIR}/libelas.so
 )
 
+add_executable(realtime_recon_video
+	realtime_recon_video.cpp
+)
+target_link_libraries(realtime_recon_video
+	${OpenCV_LIBS}
+	${PCL_LIBRARIES}
+	${PROJECT_SOURCE_DIR}/libelas.so
+)
+
 add_executable(realtime_surface
 	realtime_surface.cpp
 )

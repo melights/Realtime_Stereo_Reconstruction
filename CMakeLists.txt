@@ -5,8 +5,8 @@ project (rectify)
 set(OpenCV_DIR "/home/long/depend/opencv/build")
 
 find_package(OpenCV REQUIRED)
-find_package( PCL REQUIRED )
-
+find_package( PCL 1.2 REQUIRED )
+find_package(CUDA)
 include_directories(${PCL_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
@@ -38,20 +38,22 @@ target_link_libraries(realtime_recon
 	${PROJECT_SOURCE_DIR}/libelas.so
 )
 
-add_executable(realtime_recon_video
-	realtime_recon_video.cpp
-)
-target_link_libraries(realtime_recon_video
-	${OpenCV_LIBS}
-	${PCL_LIBRARIES}
-	${PROJECT_SOURCE_DIR}/libelas.so
-)
-
 add_executable(realtime_surface
 	realtime_surface.cpp
 )
 target_link_libraries(realtime_surface
 	${OpenCV_LIBS}
 	${PCL_LIBRARIES}
+	${PROJECT_SOURCE_DIR}/libelas.so
+)
+
+add_executable(realtime_recon_CUDA
+	realtime_recon_CUDA.cpp
+)
+target_link_libraries(realtime_recon_CUDA
+	${OpenCV_LIBS}
+	${PCL_LIBRARIES}
+	${CUDA_LIBRARIES}
+	${PROJECT_SOURCE_DIR}/libCUDA_TARGETS.a
 	${PROJECT_SOURCE_DIR}/libelas.so
 )

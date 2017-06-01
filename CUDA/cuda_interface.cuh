@@ -30,12 +30,8 @@ texture<float, cudaTextureType2D> primal_step_tex;
 texture<float2, cudaTextureType2D> dual_tex;
 texture<float2, cudaTextureType2D> dual_step_tex;
 
-texture<float4, cudaTextureType2D> diffuse_tensor_tex;
-
-#define cost_max 1.0
 
 enum RefImage {LeftRefImage, RightRefImage};
-
 struct CostVolumeParams {
 
     uint8_t min_disp;
@@ -46,6 +42,18 @@ struct CostVolumeParams {
     RefImage ref_img;
 
 };
+
+texture<float4, cudaTextureType2D> diffuse_tensor_tex;
+CostVolumeParams* dev_cv_params;
+cudaPitchedPtr min_disp, min_disp_cost, max_disp_cost;
+cudaMemcpy3DParms copyParams;
+cudaPitchedPtr cost_volume;
+cudaArray *left_img_array, *right_img_array;
+CostVolumeParams host_cv_params;
+#define cost_max 1.0
+
+
+
 
 struct PrimalDualParams {
 

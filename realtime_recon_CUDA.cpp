@@ -23,6 +23,7 @@ using namespace cv;
 boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
 int rows,cols;
 cv::Mat Q;
+bool init=true;
 enum RefImage {LeftRefImage, RightRefImage};
 struct CostVolumeParams {
 
@@ -54,6 +55,7 @@ struct PrimalDualParams {
 };
 
 cv::Mat stereoCalcu(int _m, int _n, float* _left_img, float* _right_img, CostVolumeParams _cv_params, PrimalDualParams _pd_params);
+cv::Mat stereoCalculate(int _m, int _n, float* _left_img, float* _right_img);
 
 void reconstruction(Mat &disp, Mat &img1c)
 {
@@ -91,7 +93,7 @@ void reconstruction(Mat &disp, Mat &img1c)
     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(point_cloud_ptr);
     viewer->removeAllPointClouds();
     viewer->addPointCloud<pcl::PointXYZRGB>(point_cloud_ptr, rgb, "reconstruction");
-    viewer->spinOnce(10000);
+    viewer->spinOnce(10);
 }
 
 Mat compute_disparity_ELAS(Mat &left, Mat &right)
@@ -110,9 +112,9 @@ Mat compute_disparity_CUDA(Mat &left, Mat &right)
 
     CostVolumeParams cv_params;
     cv_params.min_disp = 0;
-    cv_params.max_disp = 64;
+    cv_params.max_disp = 32;
     cv_params.method = 1;
-    cv_params.win_r = 11;
+    cv_params.win_r = 3;
     cv_params.ref_img = LeftRefImage;
 
     PrimalDualParams pd_params;
@@ -123,9 +125,14 @@ Mat compute_disparity_CUDA(Mat &left, Mat &right)
     pd_params.lambda = 1e-2; // 1e-3
     pd_params.aux_theta = 10; // 10
     pd_params.aux_theta_gamma = 1e-6; // 1e-6
+cv::Mat result;
+if(init){
+    result = stereoCalcu(letf_32F.rows, letf_32F.cols, (float*)letf_32F.data, (float*)right_32F.data, cv_params, pd_params);
+    //init=false;
+} else {
+    result = stereoCalculate(letf_32F.rows, letf_32F.cols, (float*)letf_32F.data, (float*)right_32F.data);
 
-
-    cv::Mat result = stereoCalcu(letf_32F.rows, letf_32F.cols, (float*)letf_32F.data, (float*)right_32F.data, cv_params, pd_params);
+}
     // convert for [0,1] to [min_d, max_d]
     result.convertTo(result, CV_32F, cv_params.max_disp);
     return result;
@@ -186,6 +193,10 @@ int64 t_start = getTickCount();
         imageL = cv::imread(filenameL, 0);
         imageR = cv::imread(filenameR, 0);
         image1c = cv::imread(filenameR, 1);
+        float scale =0.5;
+        resize(imageL, imageL, Size(),scale,scale);
+        resize(imageR, imageR, Size(),scale,scale);
+        resize(image1c, image1c, Size(),scale,scale);
         imageNum += adder;
         rows=imageL.rows;
         cols=imageL.cols;
@@ -197,7 +208,7 @@ int64 t_read = getTickCount();
 int64 t_dispar = getTickCount();
         minMaxLoc(disp, &minVal, &maxVal);
         disp.convertTo(disp8, CV_8UC1, 255 / (maxVal - minVal));
-std::cout<<disp<<std::endl;
+//std::cout<<disp<<std::endl;
         imshow("left", imageL);
 
         imshow("disparity", disp8);

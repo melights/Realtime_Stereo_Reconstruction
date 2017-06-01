@@ -18,11 +18,68 @@
 
 using namespace cv;
 
-//extern "C"
+extern "C"
 //Adds two arrays
-//cv::Mat stereoCalcu(int _m, int _n, float* _left_img, float* _right_img, CostVolumeParams _cv_params, PrimalDualParams _pd_params);
+void runCudaPart(cuda::PtrStepSz<float> data, cuda::PtrStepSz<float> result,int rows, int cols);
+void runCudaSet(float* data, float* result, int rows, int cols);
+
+cv::Mat stereoCalcu(int _m, int _n, float* _left_img, float* _right_img, CostVolumeParams _cv_params, PrimalDualParams _pd_params);
+
+
+__global__ void addAry( int * ary1, int * ary2 )
+{
+    int indx = threadIdx.x;
+    //ary1[ indx ] += ary2[ indx ];
+    ary1[ indx ] = 1;
+}
+
+__global__ void changetoone(cuda::PtrStepSz<float> data, cuda::PtrStepSz<float> result)
+{
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+    int offset = x + y * blockDim.x * gridDim.x;
+    //int offset = x + y*gridDim.x;
+    //int offset = threadIdx.x + blockIdx.x * blockDim.x;
+
+
+    if(offset < 640*480)
+        if(offset > 640 && (offset+640) < 640*480)
+            result(0, offset) = data(0, offset) - data(0, offset-1);
+
+}
+
+__global__ void ChangeToOne(float* data, float* result)
+{
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+    int offset = x + y * blockDim.x * gridDim.x;
+    //int offset = x + y*gridDim.x;
+    //int offset = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(offset < 640*480)
+        if(offset > 640 && (offset+640) < 640*480)
+            result[offset] = data[offset] - data[offset-1];
+}
+
 
 // Main cuda function
+void runCudaSet(float* data, float* result, int rows, int cols)
+{
+
+    printf( "start\n %d %d\n", rows, cols);
+    dim3 blocks((cols+31)/32, (rows+31)/32);
+    dim3 threads(32,32);
+    ChangeToOne<<<blocks, threads>>>(data, result);
+}
+
+void runCudaPart(cuda::PtrStepSz<float> data, cuda::PtrStepSz<float> result,int rows, int cols)
+{
+    printf( "start\n %d %d\n", rows, cols);
+    dim3 blocks((cols+31)/32, (rows+31)/32);
+    dim3 threads(32,32);
+    changetoone<<<blocks, threads>>>(data, result);
+
+}
 
 cv::Mat stereoCalcu(int _rows, int _cols, float* _left_img, float* _right_img, CostVolumeParams _cv_params, PrimalDualParams _pd_params)
 {
@@ -39,7 +96,7 @@ cv::Mat stereoCalcu(int _rows, int _cols, float* _left_img, float* _right_img, C
     size_t width = _cols;
     size_t height = _rows;
 
-    
+    CostVolumeParams host_cv_params;
     host_cv_params.min_disp = _cv_params.min_disp;
     host_cv_params.max_disp = _cv_params.max_disp;
     host_cv_params.num_disp_layers = host_cv_params.max_disp-host_cv_params.min_disp+1;
@@ -48,6 +105,7 @@ cv::Mat stereoCalcu(int _rows, int _cols, float* _left_img, float* _right_img, C
     host_cv_params.win_r = _cv_params.win_r;
     host_cv_params.ref_img = _cv_params.ref_img;
 
+    CostVolumeParams* dev_cv_params;
     checkCudaErrors(cudaMalloc((void**)&dev_cv_params, sizeof(CostVolumeParams)));
     checkCudaErrors(cudaMemcpy(dev_cv_params, &host_cv_params, sizeof(CostVolumeParams), cudaMemcpyHostToDevice));
 
@@ -72,7 +130,7 @@ cv::Mat stereoCalcu(int _rows, int _cols, float* _left_img, float* _right_img, C
     printf("Primal dual params set.\n");
 
     /* Allocate device memory and copy left and right image. */
-    
+    cudaArray *left_img_array, *right_img_array;
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
     checkCudaErrors(cudaMallocArray(&left_img_array, &channelDesc_float, width, height));
     checkCudaErrors(cudaMallocArray(&right_img_array, &channelDesc_float, width, height));
@@ -82,7 +140,7 @@ cv::Mat stereoCalcu(int _rows, int _cols, float* _left_img, float* _right_img, C
     printf("Allocate device memory and copy left and right image.\n");
 
     /* Allocate cost-volume 3D memory. */
-    
+    cudaPitchedPtr cost_volume;
     checkCudaErrors(cudaMalloc3D(&cost_volume, make_cudaExtent(width*sizeof(float), height, host_cv_params.num_disp_layers)));
 
     printf("Allocate cost-volume 3D memory.\n");
@@ -103,48 +161,56 @@ cv::Mat stereoCalcu(int _rows, int _cols, float* _left_img, float* _right_img, C
         checkCudaErrors(cudaBindTextureToArray(target_img_tex, left_img_array));
     }
 
+    size_t THREAD_NUM_3D_BLOCK = 8;
+    dim3 dimBlock(THREAD_NUM_3D_BLOCK, THREAD_NUM_3D_BLOCK,THREAD_NUM_3D_BLOCK);
+    dim3 dimGrid((width+dimBlock.x-1)/dimBlock.x,
+                 (height+dimBlock.y-1)/dimBlock.y,
+                 (host_cv_params.num_disp_layers+dimBlock.z-1)/dimBlock.z);
 
     start = clock();
 
     /* AD */
-    // if(host_cv_params.method == 0)
-    // {
-    //     ADKernel<<<dimGrid, dimBlock>>>(cost_volume,
-    //                                     dev_cv_params,
-    //                                     width,
-    //                                     height);
-    //     printf("AD done!\n");
-    // }
+    if(host_cv_params.method == 0)
+    {
+        ADKernel<<<dimGrid, dimBlock>>>(cost_volume,
+                                        dev_cv_params,
+                                        width,
+                                        height);
+        printf("AD done!\n");
+    }
     /* ZNCC */
-
-
-start = clock();
-    /* Copy cost-volume to 3D array and bind it to 3D texture for fast accessing */
-    cudaArray* cost_volume_array;
-    checkCudaErrors(cudaMalloc3DArray(&cost_volume_array, &channelDesc_float, make_cudaExtent(width, height, host_cv_params.num_disp_layers), cudaArraySurfaceLoadStore));
-
-    //cudaMemcpy3DParms copyParams = {0};
-    copyParams.srcPtr = cost_volume;
-    copyParams.dstArray = cost_volume_array;
-    copyParams.extent = make_cudaExtent(width, height, host_cv_params.num_disp_layers);
-    copyParams.kind   = cudaMemcpyDeviceToDevice;
-    checkCudaErrors(cudaMemcpy3D(&copyParams));
-
-    checkCudaErrors(cudaBindTextureToArray(cost_volume_tex, cost_volume_array, channelDesc_float));
-    //checkCudaErrors(cudaFree(cost_volume.ptr));
-
-    ////////////////////////////////////////////////////////////////////////////
-    //  Winnder-take-all (WTA) scheme to initialise disp
-    ////////////////////////////////////////////////////////////////////////////
-
-
-
+    if(host_cv_params.method == 1)
+    {
+        ZNCCKernel<<<dimGrid, dimBlock>>>(cost_volume,
+                                          dev_cv_params,
+                                          width,
+                                          height);
+        printf("ZNCC done!\n");
+    }
 
     finish = clock();
     duration = (double)(finish - start) / CLOCKS_PER_SEC;
     printf("It take %f s.\n", duration);
 
-    
+start = clock();
+    /* Copy cost-volume to 3D array and bind it to 3D texture for fast accessing */
+    // cudaArray* cost_volume_array;
+    // checkCudaErrors(cudaMalloc3DArray(&cost_volume_array, &channelDesc_float, make_cudaExtent(width, height, host_cv_params.num_disp_layers), cudaArraySurfaceLoadStore));
+
+    // cudaMemcpy3DParms copyParams = {0};
+    // copyParams.srcPtr = cost_volume;
+    // copyParams.dstArray = cost_volume_array;
+    // copyParams.extent = make_cudaExtent(width, height, host_cv_params.num_disp_layers);
+    // copyParams.kind   = cudaMemcpyDeviceToDevice;
+    // checkCudaErrors(cudaMemcpy3D(&copyParams));
+
+    // checkCudaErrors(cudaBindTextureToArray(cost_volume_tex, cost_volume_array, channelDesc_float));
+    // checkCudaErrors(cudaFree(cost_volume.ptr));
+
+    ////////////////////////////////////////////////////////////////////////////
+    //  Winnder-take-all (WTA) scheme to initialise disp
+    ////////////////////////////////////////////////////////////////////////////
+    cudaPitchedPtr min_disp, min_disp_cost, max_disp_cost;
     checkCudaErrors(cudaMallocPitch((void **)&min_disp.ptr, &min_disp.pitch, width*sizeof(Primal), height));
     checkCudaErrors(cudaMemset2D(min_disp.ptr, min_disp.pitch, 0.0, width*sizeof(Primal), height));
 
@@ -154,35 +220,6 @@ start = clock();
     checkCudaErrors(cudaMallocPitch((void **)&max_disp_cost.ptr, &max_disp_cost.pitch, width*sizeof(float), height));
     checkCudaErrors(cudaMemset2D(max_disp_cost.ptr, max_disp_cost.pitch, 0.0, width*sizeof(float), height));
 
-
-    finish = clock();
-    duration = (double)(finish - start) / CLOCKS_PER_SEC;
-    printf("WTAKernel take %f s.\n", duration);
-start = clock();
-    checkCudaErrors(cudaBindTexture2D(0, min_disp_cost_tex, min_disp_cost.ptr,
-                                      cudaCreateChannelDesc<float>(),
-                                      width, height, min_disp_cost.pitch));
-
-    checkCudaErrors(cudaBindTexture2D(0, max_disp_cost_tex, max_disp_cost.ptr,
-                                      cudaCreateChannelDesc<float>(),
-                                      width, height, max_disp_cost.pitch));
-
-    /////////////////ZNCC////////////////////////
-    size_t THREAD_NUM_3D_BLOCK = 8;
-    dim3 dimBlock(THREAD_NUM_3D_BLOCK, THREAD_NUM_3D_BLOCK,THREAD_NUM_3D_BLOCK);
-    dim3 dimGrid((width+dimBlock.x-1)/dimBlock.x,
-                 (height+dimBlock.y-1)/dimBlock.y,
-                 (host_cv_params.num_disp_layers+dimBlock.z-1)/dimBlock.z);
-    if(host_cv_params.method == 1)
-    {
-        ZNCCKernel<<<dimGrid, dimBlock>>>(cost_volume,
-                                          dev_cv_params,
-                                          width,
-                                          height);
-        printf("ZNCC done!\n");
-    }
-    checkCudaErrors(cudaMemcpy3D(&copyParams));
-    ////////////////////WTA////////////////////
     size_t THREAD_NUM_2D_BLOCK = 16;
     dimBlock = dim3(THREAD_NUM_2D_BLOCK, THREAD_NUM_2D_BLOCK);
     dimGrid = dim3((width+dimBlock.x-1)/dimBlock.x,
@@ -192,29 +229,34 @@ start = clock();
     printf("Ittt take %f s.\n", duration);
 
     start = clock();
-
-
     WTAKernel<<<dimGrid, dimBlock>>>(min_disp,
                                      min_disp_cost,
                                      max_disp_cost,
                                      dev_cv_params,
                                      width,
                                      height);
-     //////////////////////////////////////// 
+
+    finish = clock();
+    duration = (double)(finish - start) / CLOCKS_PER_SEC;
+    printf("WTAKernel take %f s.\n", duration);
+
+    checkCudaErrors(cudaBindTexture2D(0, min_disp_cost_tex, min_disp_cost.ptr,
+                                      cudaCreateChannelDesc<float>(),
+                                      width, height, min_disp_cost.pitch));
+
+    checkCudaErrors(cudaBindTexture2D(0, max_disp_cost_tex, max_disp_cost.ptr,
+                                      cudaCreateChannelDesc<float>(),
+                                      width, height, max_disp_cost.pitch));
+
 
      // return first
       Mat result(_rows, _cols, CV_32F);
-      //checkCudaErrors(cudaMemcpy2D((float*)result.data, width*sizeof(float), min_disp.ptr, min_disp.pitch, width*sizeof(float), height, cudaMemcpyDeviceToHost));
-    finish = clock();
-    duration = (double)(finish - start) / CLOCKS_PER_SEC;
-    printf("WTAAAAAAA take %f s.\n", duration);
-        
-        
+      checkCudaErrors(cudaMemcpy2D((float*)result.data, width*sizeof(float), min_disp.ptr, min_disp.pitch, width*sizeof(float), height, cudaMemcpyDeviceToHost));
         clock_t finishall = clock();
     duration = (double)(finishall - startall) / CLOCKS_PER_SEC;
     printf("%f \n", duration);
-      //return result;
-    
+      return result;
+
     ////////////////////////////////////////////////////////////////////////////
     //  Primal-dual + cost-volume optimisation
     ////////////////////////////////////////////////////////////////////////////
@@ -432,71 +474,4 @@ start = clock();
     checkCudaErrors(cudaFreeArray(right_img_array));
 
     return result;
-    
-}
-
-cv::Mat stereoCalculate(int _rows, int _cols, float* _left_img, float* _right_img)
-{
-        clock_t start, finish;
-
-    start = clock();
-
-    size_t width = _cols;
-    size_t height = _rows;
-    checkCudaErrors(cudaMemcpyToArray(left_img_array, 0, 0, (float*)_left_img, width*height*sizeof(float), cudaMemcpyHostToDevice));
-    checkCudaErrors(cudaMemcpyToArray(right_img_array, 0, 0, (float*)_right_img, width*height*sizeof(float), cudaMemcpyHostToDevice));
-        finish = clock();
-    double duration = (double)(finish - start) / CLOCKS_PER_SEC;
-    printf("Copy take %f s.\n", duration);
-
-    start = clock();
-
-    /////////////////ZNCC////////////////////////
-    size_t THREAD_NUM_3D_BLOCK = 8;
-    dim3 dimBlock(THREAD_NUM_3D_BLOCK, THREAD_NUM_3D_BLOCK,THREAD_NUM_3D_BLOCK);
-    dim3 dimGrid((width+dimBlock.x-1)/dimBlock.x,
-                 (height+dimBlock.y-1)/dimBlock.y,
-                 (host_cv_params.num_disp_layers+dimBlock.z-1)/dimBlock.z);
-    if(host_cv_params.method == 1)
-    {
-        ZNCCKernel<<<dimGrid, dimBlock>>>(cost_volume,
-                                          dev_cv_params,
-                                          width,
-                                          height);
-        printf("ZNCC done!\n");
-    }
-    checkCudaErrors(cudaMemcpy3D(&copyParams));
-
-        finish = clock();
-    duration = (double)(finish - start) / CLOCKS_PER_SEC;
-    printf("ZNCC take %f s.\n", duration);
-    start = clock();
-
-    ////////////////////WTA////////////////////
-    size_t THREAD_NUM_2D_BLOCK = 16;
-    dimBlock = dim3(THREAD_NUM_2D_BLOCK, THREAD_NUM_2D_BLOCK);
-    dimGrid = dim3((width+dimBlock.x-1)/dimBlock.x,
-                   (height+dimBlock.y-1)/dimBlock.y);
-
-    WTAKernel<<<dimGrid, dimBlock>>>(min_disp,
-                                     min_disp_cost,
-                                     max_disp_cost,
-                                     dev_cv_params,
-                                     width,
-                                     height);
-     //////////////////////////////////////// 
-    finish = clock();
-    duration = (double)(finish - start) / CLOCKS_PER_SEC;
-    printf("WTA take %f s.\n", duration);
-    start = clock();
-
-     // return first
-      Mat result(_rows, _cols, CV_32F);
-      checkCudaErrors(cudaMemcpy2D((float*)result.data, width*sizeof(float), min_disp.ptr, min_disp.pitch, width*sizeof(float), height, cudaMemcpyDeviceToHost));
-           finish = clock();
-    duration = (double)(finish - start) / CLOCKS_PER_SEC;
-    printf("return take %f s.\n", duration);
-
-
-      return result;
 }
